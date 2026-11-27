@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+﻿import * as SecureStore from '../storage/secureStore';
 import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
 import { isConfigured } from './config';
@@ -144,3 +144,4 @@ export async function fetchCloudBackup(email, password) {
     return { error: friendly(e) };
   }
 }
+

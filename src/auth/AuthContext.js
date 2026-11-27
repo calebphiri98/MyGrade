@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
+﻿import { createContext, useContext, useEffect, useState } from 'react';
+import * as SecureStore from '../storage/secureStore';
 import * as Crypto from 'expo-crypto';
 import { useSQLiteContext } from 'expo-sqlite';
 import { normalizeAnswer } from '../utils/security';
@@ -174,3 +174,4 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
