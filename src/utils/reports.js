@@ -1,0 +1,256 @@
+import { Alert } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
+import { resultStatus } from './format';
+import { GRADE_SCALE, gradeForMark, gradeLabel } from './grading';
+
+
+function esc(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function statusColor(status) {
+  if (status === 'Pass') return '#157347';
+  if (status === 'Fail') return '#B42318';
+  return '#8A5A00';
+}
+
+function teacherLine(teacherName) {
+  return teacherName ? `<p class="sub">Class teacher: ${esc(teacherName)}</p>` : '';
+}
+
+function termText(term, cls) {
+  if (term) return [term.name, term.year].filter(Boolean).join(' ');
+  return [cls.term, cls.year].filter(Boolean).join(' ');
+}
+
+const baseStyles = `
+  body { font-family: Helvetica, Arial, sans-serif; color: #0F172A; padding: 28px; }
+  h1 { text-align: center; margin: 0; font-size: 20px; color: #0B2545; letter-spacing: 0.5px; text-transform: uppercase; }
+  h2 { text-align: center; margin: 8px 0 2px; font-size: 15px; color: #1D5FBF; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .rule { height: 3px; background: #0B2545; border-radius: 2px; margin: 12px auto 4px; width: 80px; }
+  .sub { text-align: center; color: #64748B; margin: 4px 0; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+  th { background: #0B2545; color: white; padding: 9px 6px; text-align: center; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; }
+  td { padding: 8px 6px; border-bottom: 1px solid #E2E8F0; text-align: center; }
+  td.left, th.left { text-align: left; }
+  tr:nth-child(even) td { background: #F7F9FC; }
+  .g { color: #64748B; font-size: 11px; }
+  .box { border: 1px solid #CBD5E1; background: #F7F9FC; border-radius: 8px; padding: 12px; margin-top: 14px; text-align: center; font-size: 13px; line-height: 1.6; }
+  .key { margin-top: 16px; font-size: 11px; color: #475569; text-align: center; }
+  .comment { border: 1px solid #CBD5E1; border-radius: 8px; padding: 12px; min-height: 90px; font-size: 13px; line-height: 1.6; text-align: left; margin-top: 6px; }
+  .sign { width: 100%; margin-top: 22px; font-size: 12px; color: #475569; }
+  .sign td { padding: 14px 6px 0; border: none; text-align: left; background: none; }
+  .line { display: inline-block; border-bottom: 1px solid #64748B; width: 150px; }
+  .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #E2E8F0; text-align: center; color: #94A3B8; font-size: 10px; letter-spacing: 0.4px; }
+`;
+
+function gradeKeyHtml() {
+  const items = GRADE_SCALE.map(
+    (g) => `<b>Grade ${g.value}</b> ${g.label} (${g.range})`
+  ).join(' &nbsp;|&nbsp; ');
+  return `<p class="key">Grade key: ${items}</p>`;
+}
+
+// ---------- Class report (position, name, marks per subject with grade) ----------
+export function classReportHtml({ cls, term, subjects, rows, maxTotal, passMark, schoolName, teacherName }) {
+  const complete = rows.filter((r) => r.missing === 0);
+  const passed = complete.filter((r) => r.passed).length;
+  const failed = complete.filter((r) => !r.passed).length;
+  const incomplete = rows.length - complete.length;
+
+  const head = subjects
+    .map((s) => `<th>${esc(s.name)}<br/>/${s.max_score}</th>`)
+    .join('');
+
+  const body = rows
+    .map((r) => {
+      const status = resultStatus(r);
+      const cells = subjects
+        .map((s, i) => {
+          const m = r.marks[i];
+          const g = gradeForMark(m, s.max_score);
+          return m === null
+            ? '<td>-</td>'
+            : `<td>${m} <span class="g">(${g})</span></td>`;
+        })
+        .join('');
+      return `<tr>
+        <td><b>${r.rank}</b></td>
+        <td class="left">${esc(r.name)}</td>
+        ${cells}
+        <td><b>${r.total}/${maxTotal}</b></td>
+        <td>${r.percentage.toFixed(1)}%</td>
+        <td><b>${r.grade}</b></td>
+        <td style="color:${statusColor(status)};font-weight:bold">${status}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<html><head><meta charset="utf-8"/><style>${baseStyles}</style></head><body>
+    <h1>${esc(schoolName || 'Academic Report')}</h1>
+    <div class="rule"></div>
+    <h2>Class Report: ${esc(cls.name)}</h2>
+    <p class="sub">${esc(termText(term, cls))}</p>
+    ${teacherLine(teacherName)}
+    <div class="box">
+      ${rows.length} students &bull; ${subjects.length} subjects &bull; Total marks: ${maxTotal} &bull; Pass mark: ${passMark}<br/>
+      Passed: <b>${passed}</b> &nbsp; Failed: <b>${failed}</b>${incomplete > 0 ? ` &nbsp; Incomplete: <b>${incomplete}</b>` : ''}
+    </div>
+    <table>
+      <tr>
+        <th>Pos</th><th class="left">Name</th>${head}<th>Total</th><th>%</th><th>Grade</th><th>Result</th>
+      </tr>
+      ${body}
+    </table>
+    ${gradeKeyHtml()}
+    <p class="footer">Generated by My Grade App</p>
+  </body></html>`;
+}
+
+// ---------- Individual student report ----------
+function progressHtml(progress) {
+  const pts = (progress || []).filter((p) => p.pct !== null);
+  if (pts.length < 2) return '';
+  const bar = (v, color) =>
+    `<div style="background:#E6EBF3;border-radius:4px;height:10px;"><div style="width:${Math.max(2, Math.min(100, v))}%;background:${color};height:10px;border-radius:4px;"></div></div>`;
+  const rows = pts
+    .map(
+      (p) => `<tr>
+        <td class="left">${esc(p.label)}</td>
+        <td style="width:45%">${bar(p.pct, '#1D5FBF')}</td>
+        <td><b>${p.pct.toFixed(1)}%</b></td>
+        <td>${p.classAverage === null ? '-' : p.classAverage.toFixed(1) + '%'}</td>
+        <td>${p.rank === null ? '-' : p.rank + '/' + p.classSize}</td>
+      </tr>`
+    )
+    .join('');
+  const diff = pts[pts.length - 1].pct - pts[pts.length - 2].pct;
+  const word = diff >= 2 ? 'Improving' : diff <= -2 ? 'Declining' : 'Steady';
+  const color = diff >= 2 ? '#157347' : diff <= -2 ? '#B42318' : '#0B2545';
+  return `<h2 style="margin-top:18px">Progress this year</h2>
+    <table>
+      <tr><th class="left">Term</th><th></th><th>Student</th><th>Class avg</th><th>Position</th></tr>
+      ${rows}
+    </table>
+    <div class="box">Trend: <b style="color:${color}">${word}</b> (${diff > 0 ? '+' : ''}${diff.toFixed(1)} percentage points since the previous term)</div>`;
+}
+
+function commentHtml(comment, teacherName) {
+  const text = String(comment || '').trim();
+  const body = text ? esc(text).replace(/\n/g, '<br/>') : '&nbsp;';
+  return `<h2 style="margin-top:18px">Teacher's comment</h2>
+    <div class="comment">${body}</div>
+    <table class="sign"><tr>
+      <td>Teacher: <b>${esc(teacherName || '')}</b></td>
+      <td>Signature: <span class="line"></span></td>
+      <td>Date: <span class="line" style="width:110px"></span></td>
+    </tr></table>`;
+}
+
+export function studentReportHtml({ cls, term, subjects, row, classSize, maxTotal, passMark, schoolName, teacherName, progress, comment }) {
+  const status = resultStatus(row);
+
+  const body = subjects
+    .map((s, i) => {
+      const m = row.marks[i];
+      const g = gradeForMark(m, s.max_score);
+      return `<tr>
+        <td class="left">${esc(s.name)}</td>
+        <td>${m === null ? '-' : m}</td>
+        <td>${s.max_score}</td>
+        <td>${g === null ? '-' : `<b>${g}</b> <span class="g">${gradeLabel(g)}</span>`}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<html><head><meta charset="utf-8"/><style>${baseStyles}</style></head><body>
+    <h1>${esc(schoolName || 'Academic Report')}</h1>
+    <div class="rule"></div>
+    <h2>Student Report</h2>
+    <p class="sub">${esc(cls.name)} &bull; ${esc(termText(term, cls))}</p>
+    ${teacherLine(teacherName)}
+    <div class="box">
+      <b style="font-size:16px">${esc(row.name)}</b> (${esc(row.gender)})
+    </div>
+    <table>
+      <tr><th class="left">Subject</th><th>Mark</th><th>Out of</th><th>Grade</th></tr>
+      ${body}
+      <tr>
+        <td class="left"><b>TOTAL</b></td>
+        <td><b>${row.total}</b></td>
+        <td><b>${maxTotal}</b></td>
+        <td><b>${row.grade}</b> <span class="g">${gradeLabel(row.grade)}</span></td>
+      </tr>
+    </table>
+    <div class="box">
+      Percentage: <b>${row.percentage.toFixed(1)}%</b> &bull;
+      Position: <b>${row.rank}</b> out of <b>${classSize}</b><br/>
+      Pass mark: ${passMark} &bull;
+      Result: <b style="color:${statusColor(status)}">${status === 'Incomplete' ? 'Incomplete (marks missing)' : status.toUpperCase()}</b>
+    </div>
+    ${progressHtml(progress)}
+    ${commentHtml(comment, teacherName)}
+    ${gradeKeyHtml()}
+    <p class="footer">Generated by My Grade App</p>
+  </body></html>`;
+}
+
+// ---------- Create the PDF and open the share sheet ----------
+// options example: { width: 842, height: 595 } for A4 landscape
+
+// Tries to give the PDF a readable name (e.g. Standard_5A_Term_1_class_report.pdf).
+// If the phone does not allow the copy, the original PDF is shared instead,
+// so sharing never fails because of the file name.
+async function withReadableName(uri, fileName) {
+  try {
+    const safe = String(fileName || 'report').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const dest = new File(Paths.cache, `${safe}.pdf`);
+    if (dest.exists) dest.delete();
+    await Promise.resolve(new File(uri).copy(dest));
+    if (dest.exists) return dest.uri;
+  } catch (e) {
+    // fall through to the original file
+  }
+  return uri;
+}
+
+export async function sharePdf(html, fileName, dialogTitle, options) {
+  try {
+    const { uri } = await Print.printToFileAsync({ html, ...(options || {}) });
+    const shareUri = await withReadableName(uri, fileName);
+
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(shareUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: dialogTitle || 'Share report',
+        UTI: 'com.adobe.pdf',
+      });
+    } else {
+      Alert.alert('Sharing not available', 'Sharing is not available on this device.');
+    }
+  } catch (e) {
+    // Fallback: the print screen has a "Save as PDF" and a Print option
+    Alert.alert(
+      'Could not share the PDF',
+      'You can still save or print it from the print screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open print screen', onPress: () => Print.printAsync({ html }).catch(() => {}) },
+      ]
+    );
+  }
+}
+
+// ---------- Print directly (for paper copies) ----------
+export async function printReport(html) {
+  try {
+    await Print.printAsync({ html });
+  } catch (e) {
+    // The person cancelled or no printer is available
+  }
+}
