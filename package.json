@@ -60,5 +60,8 @@
     "test:reader:paper": "node --env-file-if-exists=.env scripts/test-live-reader.mjs --paper",
     "check:config": "node --env-file-if-exists=.env scripts/check-config.mjs"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
 }
